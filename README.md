@@ -6,9 +6,14 @@ Features support for logging, visualization, tensorboardX, saving and restarting
 
 ## Requirements:
 ```
-PyTorch > 0.3
+PyTorch > 0.4
+Torchvision
+Matplotlib
+PyYAML
 
 OPTIONAL: TensorboardX
 OPTIONAL: Tensorflow (for viewing Tensorboards)
 OPTIONAL: Osgeo, Fiona, GDAL for geo-functionality
 ```
+## Coming soon
+Object detectors
