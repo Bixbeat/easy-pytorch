@@ -1,7 +1,6 @@
 from . import image_manipulations as i_manips
 from .data_funcs import create_dir_if_not_exist
 
-from scipy import misc
 import numpy as np
 from osgeo import gdal
 import ogr

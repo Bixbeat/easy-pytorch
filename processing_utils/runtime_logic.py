@@ -220,6 +220,112 @@ class AnnotatedImageAnalysis(ImageAnalysis):
         #     print(f"Prediction confidence: {confidence}")
         # return [predicted_class, confidence, cam_img]
 
+class ObjectDetection(ImageAnalysis):
+    def __init__(self, model, classes, means, sdevs, train_loader=None, val_loader=None, line_colors=None):
+        super().__init__(model, classes, train_loader, val_loader, means, sdevs)
+        self.line_col = line_colors
+
+        self.epoch_now = 1
+
+    def run_singletask_model(self, settings, split, loader, optimizer=False):
+        loss = 0
+        accuracies = []
+        for i, batch in enumerate(loader):
+            if optimizer:
+                optimizer.zero_grad()
+            images, labels = analysis_utils.imgs_labels_to_variables(batch[0], batch[1])
+            batch_loss, preds = self._get_batch_loss_and_preds(images, labels, settings['criterion'])
+            if optimizer:
+                batch_loss.backward()
+                optimizer.step()
+
+            loss += batch_loss.item()
+            accuracies.append(analysis_utils.get_mean_acc(preds, labels))
+            if (i+1) % settings['report_interval'][split] == 0:
+                print(f"{split}: [{i} out of {len(loader)}] : {loss/(i+1):.4f}")
+
+            if self.visualiser and i+1==len(loader):
+                self._imgs_to_tensorboard(images, preds, split)
+
+            # Memory management - must be cleared else the output between train/val phase are both stored
+            # Which leads to 2x memory use
+            images = labels = batch_loss = preds = None
+
+        loss = loss/(i+1)
+        epoch_acc = np.mean(accuracies)
+        return loss, epoch_acc
+
+    def _imgs_to_tensorboard(self, imgs, preds, split):
+        img, pred = visualise.encoded_img_and_lbl_to_data(imgs, preds, self.means, self.sdevs, self.lab_col)
+        predi = torch.Tensor(pred.permute(0,3,1,2))
+        imag = torch.Tensor(img.permute(0,3,1,2))
+        row_views = torch.cat((imag[:,:3,:,:], predi)) # Grab only colour bands on image
+
+        side_view = vutils.make_grid(row_views, nrow=len(img), normalize=True, scale_each=True)
+        self.writer.add_image(f'{split}_Predicted-from-Image', side_view, self.epoch_now, dataformats='CHW')
+        
+    def train(self, settings):
+        """Performs model training"""
+        if self.loss_tracker.store_loss is True:
+            self.loss_tracker.set_loss_file('train')
+        if 'lr_decay_patience' in settings:
+            lr_scheduler = ReduceLROnPlateau(settings['optimizer'],
+                                             'min',
+                                             factor=settings['lr_decay'],
+                                             patience=settings['lr_decay_patience'],
+                                             verbose=True)
+
+        for epoch in range(settings['n_epochs']):
+            self.model = self.model.train()
+            epoch_train_loss, epoch_train_accuracy = self.run_singletask_model(settings,
+                                                                               'train',
+                                                                               self.train_loader,
+                                                                               optimizer=settings['optimizer'])
+
+            self.epoch_now = len(self.loss_tracker.all_loss['train'])+1
+            self.loss_tracker.store_epoch_loss('train', self.epoch_now, epoch_train_loss, epoch_train_accuracy)
+        
+            if self.val_loader is not None:
+                self.validate(settings)
+
+            if self.epoch_now % settings['save_interval'] == 0 and self.loss_tracker.store_models is True:
+                print("Checkpoint-saving model")
+                self.loss_tracker.save_model(self.model, epoch)
+
+            self._visualise_loss(settings, self.epoch_now, epoch_train_accuracy, 'train')
+            self._print_results(self.epoch_now, epoch_train_loss, epoch_train_accuracy, 'train')
+
+            if 'lr_decay_epoch' in settings:
+                if epoch in settings['lr_decay_epoch']:
+                    analysis_utils.decay_optimizer_lr(settings['optimizer'], settings['lr_decay'])
+                    print(f"\nlr decayed by {settings['lr_decay']}\n")
+            elif 'lr_decay_patience' in settings:
+                lr_scheduler.step(epoch_train_loss)            
+                
+        if settings['shutdown'] is True:
+            os.system("shutdown")
+
+    def validate(self, settings):
+        """For a given model, evaluation criterion,
+        and validation loader, performs a single evaluation
+        pass."""
+        self.model = self.model.eval()
+
+        with torch.no_grad():
+            if self.loss_tracker.store_loss is True:
+                self.loss_tracker.set_loss_file('val')
+
+            epoch_val_loss, epoch_val_accuracy = self.run_singletask_model(settings,
+                                                                        'val',
+                                                                        self.val_loader)
+
+            self.loss_tracker.store_epoch_loss('val', self.epoch_now, epoch_val_loss, epoch_val_accuracy)
+
+            self._visualise_loss(settings, self.epoch_now, epoch_val_accuracy, 'val')
+            self._save_if_best(epoch_val_loss, self.model, settings['run_name']+'_best')
+            self._print_results(self.epoch_now, epoch_val_loss, epoch_val_accuracy, 'val')
+         
+
 class SemSegAnalysis(ImageAnalysis):
     """Performs semantic segmentation
     TODO: refactor repeated code (e.g. timekeeping)"""
