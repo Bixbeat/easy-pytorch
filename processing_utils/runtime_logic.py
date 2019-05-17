@@ -255,8 +255,14 @@ class ObjectDetection(ImageAnalysis):
         epoch_acc = np.mean(accuracies)
         return loss, epoch_acc
 
+    def _get_batch_loss_and_preds(self, images, labels, criterion):
+        outputs = self.model(images)
+        loss = criterion(outputs, labels)
+        outputs = None
+        return loss, outputs
+
     def _imgs_to_tensorboard(self, imgs, preds, split):
-        img, pred = visualise.encoded_img_and_lbl_to_data(imgs, preds, self.means, self.sdevs, self.lab_col)
+        img, pred = visualise.encoded_img_and_lbl_to_data(imgs, preds, self.means, self.sdevs, self.line_col)
         predi = torch.Tensor(pred.permute(0,3,1,2))
         imag = torch.Tensor(img.permute(0,3,1,2))
         row_views = torch.cat((imag[:,:3,:,:], predi)) # Grab only colour bands on image
@@ -324,7 +330,6 @@ class ObjectDetection(ImageAnalysis):
             self._visualise_loss(settings, self.epoch_now, epoch_val_accuracy, 'val')
             self._save_if_best(epoch_val_loss, self.model, settings['run_name']+'_best')
             self._print_results(self.epoch_now, epoch_val_loss, epoch_val_accuracy, 'val')
-         
 
 class SemSegAnalysis(ImageAnalysis):
     """Performs semantic segmentation

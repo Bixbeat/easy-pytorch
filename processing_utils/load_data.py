@@ -5,16 +5,18 @@ Created on Thu Dec 21 13:50:14 2017
 
 @author: anteagroup
 """
-from . import image_manipulations as i_manips
-
 import os
-from PIL import Image
-
-from . import joint_transforms as j_trans
+from glob import glob
+import collections
 
 import numpy as np
+from PIL import Image
 import torch
 from torch.utils.data import Dataset
+import xml.etree.ElementTree as ET
+
+from . import joint_transforms as j_trans
+from . import image_manipulations as i_manips
 
 class SemSegImageData(Dataset):
     """Wrapper for loading image segmentation"""
@@ -46,9 +48,6 @@ class SemSegImageData(Dataset):
             img, lbl = j_trans.joint_horizontal_flip(img, lbl)
         if 'vflip' in self.joint_transforms:
             img, lbl = j_trans.joint_vertical_flip(img, lbl)
-        # img = np.array(img, dtype=np.int32)
-        # lbl_np = (np.array(lbl, dtype=np.uint8)) # [:,:,2] Why was this here?
-        # target_lbl = torch.from_numpy(lbl_np).long()
 
         if self.input_transform is not None:
             img = self.input_transform(img)
@@ -57,5 +56,47 @@ class SemSegImageData(Dataset):
 
         return img, target_lbl, img_path
 
+class LoadVOCStyleData(Dataset):
+    """Dataloader for labels in the style of Pascal VOC XMLs
+    """
+    def __init__(self, root_dir, split='train', input_transform=None):
+        assert split in ('train', 'val', 'test')
+        self.target_dir = os.path.join(root_dir, split)
+        self.annotations = glob(f'{self.target_dir}/*.xml')
+
+        self.split = split
+        self.input_transform = input_transform
+    
+    def __getitem__(self, index):
+        """For a given index, returns an image and label pair with the
+        specified transformations"""
+        target = self._parse_voc_xml(ET.parse(self.annotations[index]).getroot())
+        image = Image.open(os.path.join(self.target_dir, target['annotation']['filename']))
+
+        if self.input_transform is not None:
+            image = self.input_transform(image)    
+
+        return image, target 
+
+    def _parse_voc_xml(self, node):
+        """Source: https://pytorch.org/docs/master/_modules/torchvision/datasets/voc.html"""
+        voc_dict = {}
+        children = list(node)
+        if children:
+            def_dic = collections.defaultdict(list)
+            for dc in map(self._parse_voc_xml, children):
+                for ind, v in dc.items():
+                    def_dic[ind].append(v)
+            voc_dict = {
+                node.tag:
+                    {ind: v[0] if len(v) == 1 else v
+                     for ind, v in def_dic.items()}
+            }
+        if node.text:
+            text = node.text.strip()
+            if not children:
+                voc_dict[node.tag] = text
+        return voc_dict
+
     def __len__(self):
-        return len(self.imgs)
+        return len(self.annotations)

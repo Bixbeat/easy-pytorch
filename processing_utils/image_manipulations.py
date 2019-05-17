@@ -18,12 +18,16 @@ def get_normalize_params(all_image_filepaths, num_bands):
     TODO: Expand beyond 3 bands"""
     band_mean = [[] for i in range(num_bands)]
     band_stdev = [[] for i in range(num_bands)]
-    for i, file in enumerate(all_image_filepaths):
-        current_img = misc.imread(file)
+    for i, fname in enumerate(all_image_filepaths):
+        current_img = np.asarray(Image.open(fname))
         
-        for band in range(num_bands):
-            band_mean[band].append(np.mean(current_img[:,:,band]))
-            band_stdev[band].append(np.std(current_img[:,:,band]))
+        if not num_bands == 1:
+            for band in range(num_bands):
+                band_mean[band].append(np.mean(current_img[:,:,band]))
+                band_stdev[band].append(np.std(current_img[:,:,band]))
+        else:
+            band_mean[0].append(np.mean(current_img))
+            band_stdev[0].append(np.std(current_img))
                 
     for i,_ in enumerate(band_mean):
         band_mean[i] = float(np.mean(band_mean[i]))
