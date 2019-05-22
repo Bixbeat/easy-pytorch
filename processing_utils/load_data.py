@@ -52,9 +52,9 @@ class SemSegImageData(Dataset):
         if self.input_transform is not None:
             img = self.input_transform(img)
         if self.target_transform is not None:
-            target_lbl = self.target_transform(lbl)
+            lbl = self.target_transform(lbl)
 
-        return img, target_lbl, img_path
+        return img, lbl, img_path
 
 class LoadVOCStyleData(Dataset):
     """Dataloader for labels in the style of Pascal VOC XMLs
@@ -71,7 +71,7 @@ class LoadVOCStyleData(Dataset):
         """For a given index, returns an image and label pair with the
         specified transformations"""
         target = self._parse_voc_xml(ET.parse(self.annotations[index]).getroot())
-        image = Image.open(os.path.join(self.target_dir, target['annotation']['filename']))
+        image = Image.open(os.path.join(self.target_dir, target['annotation']['filename'])).convert('RGB')
 
         if self.input_transform is not None:
             image = self.input_transform(image)    

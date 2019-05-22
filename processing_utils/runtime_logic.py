@@ -52,7 +52,7 @@ class ImageAnalysis():
         self.visualiser = True
 
         if not filepath:
-            self.loss_tracker = SummaryWriter('tmp/log')
+            self.writer = SummaryWriter('tmp/log')
         else:
             self.writer = SummaryWriter(filepath)
         # self.writer.add_graph(self.model, next(iter(self.train_loader))[0]
