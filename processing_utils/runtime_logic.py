@@ -233,13 +233,18 @@ class ObjectDetection(ImageAnalysis):
         for i, batch in enumerate(loader):
             if optimizer:
                 optimizer.zero_grad()
-            images, labels = analysis_utils.imgs_labels_to_variables(batch[0], batch[1])
+            images = Variable(batch[0])
+            if torch.cuda.is_available:
+                images = images.cuda()            
+            labels = batch[1]
+
             batch_loss, preds = self._get_batch_loss_and_preds(images, labels, settings['criterion'])
             if optimizer:
+                batch_loss = batch_loss[0] + batch_loss[1]
                 batch_loss.backward()
                 optimizer.step()
 
-            loss += batch_loss.item()
+            loss += batch_loss
             accuracies.append(analysis_utils.get_mean_acc(preds, labels))
             if (i+1) % settings['report_interval'][split] == 0:
                 print(f"{split}: [{i} out of {len(loader)}] : {loss/(i+1):.4f}")
@@ -256,10 +261,10 @@ class ObjectDetection(ImageAnalysis):
         return loss, epoch_acc
 
     def _get_batch_loss_and_preds(self, images, labels, criterion):
-        outputs = self.model(images)
-        loss = criterion(outputs, labels)
+        classification_loss, regression_loss = self.model([images, labels])
+        # loss = criterion(outputs, labels)
         outputs = None
-        return loss, outputs
+        return [classification_loss, regression_loss], outputs
 
     def _imgs_to_tensorboard(self, imgs, preds, split):
         img, pred = visualise.encoded_img_and_lbl_to_data(imgs, preds, self.means, self.sdevs, self.line_col)
