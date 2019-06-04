@@ -238,33 +238,31 @@ class ObjectDetection(ImageAnalysis):
                 images = images.cuda()            
             labels = batch[1]
 
-            batch_loss, preds = self._get_batch_loss_and_preds(images, labels, settings['criterion'])
+            batch_loss = self._get_batch_loss_and_preds(images, labels, settings['criterion'])
+            batch_loss = batch_loss[0] + batch_loss[1]
             if optimizer:
-                batch_loss = batch_loss[0] + batch_loss[1]
                 batch_loss.backward()
                 optimizer.step()
 
             loss += batch_loss
-            accuracies.append(analysis_utils.get_mean_acc(preds, labels))
+            # accuracies.append(analysis_utils.get_mean_acc(preds, labels))
             if (i+1) % settings['report_interval'][split] == 0:
                 print(f"{split}: [{i} out of {len(loader)}] : {loss/(i+1):.4f}")
 
-            if self.visualiser and i+1==len(loader):
-                self._imgs_to_tensorboard(images, preds, split)
+            # if self.visualiser and i+1==len(loader):
+            #     self._imgs_to_tensorboard(images, preds, split)
 
             # Memory management - must be cleared else the output between train/val phase are both stored
             # Which leads to 2x memory use
-            images = labels = batch_loss = preds = None
+            images = labels = batch_loss = None
 
         loss = loss/(i+1)
-        epoch_acc = np.mean(accuracies)
-        return loss, epoch_acc
+        return loss
 
     def _get_batch_loss_and_preds(self, images, labels, criterion):
         classification_loss, regression_loss = self.model([images, labels])
         # loss = criterion(outputs, labels)
-        outputs = None
-        return [classification_loss, regression_loss], outputs
+        return [classification_loss, regression_loss]
 
     def _imgs_to_tensorboard(self, imgs, preds, split):
         img, pred = visualise.encoded_img_and_lbl_to_data(imgs, preds, self.means, self.sdevs, self.line_col)
@@ -288,13 +286,13 @@ class ObjectDetection(ImageAnalysis):
 
         for epoch in range(settings['n_epochs']):
             self.model = self.model.train()
-            epoch_train_loss, epoch_train_accuracy = self.run_singletask_model(settings,
-                                                                               'train',
-                                                                               self.train_loader,
-                                                                               optimizer=settings['optimizer'])
+            epoch_train_loss = self.run_singletask_model(settings,
+                                                        'train',
+                                                        self.train_loader,
+                                                        optimizer=settings['optimizer'])
 
             self.epoch_now = len(self.loss_tracker.all_loss['train'])+1
-            self.loss_tracker.store_epoch_loss('train', self.epoch_now, epoch_train_loss, epoch_train_accuracy)
+            # self.loss_tracker.store_epoch_loss('train', self.epoch_now, epoch_train_loss, epoch_train_accuracy)
         
             if self.val_loader is not None:
                 self.validate(settings)
@@ -303,8 +301,8 @@ class ObjectDetection(ImageAnalysis):
                 print("Checkpoint-saving model")
                 self.loss_tracker.save_model(self.model, epoch)
 
-            self._visualise_loss(settings, self.epoch_now, epoch_train_accuracy, 'train')
-            self._print_results(self.epoch_now, epoch_train_loss, epoch_train_accuracy, 'train')
+            # self._visualise_loss(settings, self.epoch_now, epoch_train_accuracy, 'train')
+            # self._print_results(self.epoch_now, epoch_train_loss, epoch_train_accuracy, 'train')
 
             if 'lr_decay_epoch' in settings:
                 if epoch in settings['lr_decay_epoch']:
