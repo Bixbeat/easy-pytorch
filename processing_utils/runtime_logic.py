@@ -13,14 +13,16 @@ from torch.autograd import Variable
 from torchvision.transforms import Compose, Normalize
 from torchvision.transforms import ToTensor
 import torchvision.utils as vutils
-# from tensorboardX import SummaryWriter
 
 from processing_utils import image_manipulations as i_manips
 from processing_utils import visualise
 from processing_utils import analysis_utils
 from .data_funcs import create_dir_if_not_exist
-
 from .analysis_utils import var_to_cpu
+
+from model.retinanet.model import nms
+from model.retinanet.losses import FocalLoss
+from model.retinanet.utils import BBoxTransform, ClipBoxes
 
 # import pdb; pdb.set_trace()
 
@@ -260,9 +262,36 @@ class ObjectDetection(ImageAnalysis):
         return loss
 
     def _get_batch_loss_and_preds(self, images, labels, criterion):
-        classification_loss, regression_loss = self.model([images, labels])
-        # loss = criterion(outputs, labels)
-        return [classification_loss, regression_loss]
+        regression, classification, anchors = self.model([images, labels])
+        criterion = FocalLoss()
+        loss = criterion.forward(regression, classification, anchors, labels)
+        preds = self._get_surpressed_boxes(images, regression, classification, anchors)
+        return loss
+
+    def _get_surpressed_boxes(self, img_batch, regression, classification, anchors):
+        self.regressBoxes = BBoxTransform()
+        self.clipBoxes = ClipBoxes()
+
+        transformed_anchors = self.regressBoxes.forward(anchors, regression)
+        transformed_anchors = self.clipBoxes.forward(transformed_anchors, img_batch)
+
+        scores = torch.max(classification, dim=2, keepdim=True)[0]
+
+        scores_over_thresh = (scores>0.05)[0, :, 0]
+
+        if scores_over_thresh.sum() == 0:
+            # no boxes to NMS, just return
+            return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+
+        classification = classification[:, scores_over_thresh, :]
+        transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
+        scores = scores[:, scores_over_thresh, :]
+
+        anchors_nms_idx = nms(transformed_anchors, scores, overlap=0.5)
+
+        nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
+
+        return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]        
 
     def _imgs_to_tensorboard(self, imgs, preds, split):
         img, pred = visualise.encoded_img_and_lbl_to_data(imgs, preds, self.means, self.sdevs, self.line_col)

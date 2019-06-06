@@ -300,6 +300,8 @@ class ResNet(nn.Module):
 
         anchors = self.anchors(img_batch)
 
+        return regression, classification, anchors
+
         if self.training:
             return self.focalLoss(classification, regression, anchors, annotations)
         else:
