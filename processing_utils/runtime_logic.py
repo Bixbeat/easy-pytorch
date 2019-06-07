@@ -240,8 +240,8 @@ class ObjectDetection(ImageAnalysis):
                 images = images.cuda()            
             labels = batch[1]
 
-            batch_loss = self._get_batch_loss_and_preds(images, labels, settings['criterion'])
-            batch_loss = batch_loss[0] + batch_loss[1]
+            losses, preds = self._get_batch_loss_and_preds(images, labels, settings['criterion'])
+            batch_loss = losses[0] + losses[1]
             if optimizer:
                 batch_loss.backward()
                 optimizer.step()
@@ -249,10 +249,11 @@ class ObjectDetection(ImageAnalysis):
             loss += batch_loss
             # accuracies.append(analysis_utils.get_mean_acc(preds, labels))
             if (i+1) % settings['report_interval'][split] == 0:
-                print(f"{split}: [{i} out of {len(loader)}] : {loss/(i+1):.4f}")
+                print(f"{split}: [{i} out of {len(loader)}]\nClassification: {losses[0]/(i+1):.4f}\nRegression: {losses[1]/(i+1):.4f}")
 
-            # if self.visualiser and i+1==len(loader):
-            #     self._imgs_to_tensorboard(images, preds, split)
+            if self.visualiser and i+1==len(loader):
+                visualise.draw_rectangles(images, preds['bboxes'], preds['pred_class'], preds['prob'], gt=labels)
+                self._imgs_to_tensorboard(images, split)
 
             # Memory management - must be cleared else the output between train/val phase are both stored
             # Which leads to 2x memory use
@@ -266,7 +267,7 @@ class ObjectDetection(ImageAnalysis):
         criterion = FocalLoss()
         loss = criterion.forward(regression, classification, anchors, labels)
         preds = self._get_surpressed_boxes(images, regression, classification, anchors)
-        return loss
+        return loss, preds
 
     def _get_surpressed_boxes(self, img_batch, regression, classification, anchors):
         self.regressBoxes = BBoxTransform()
@@ -290,14 +291,17 @@ class ObjectDetection(ImageAnalysis):
         anchors_nms_idx = nms(transformed_anchors, scores, overlap=0.5)
 
         nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
+        
+        outputs = { 'bboxes': transformed_anchors[0, anchors_nms_idx, :],
+                    'pred_class': nms_class,
+                    'prob': nms_scores }
 
-        return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]        
+        return outputs
 
-    def _imgs_to_tensorboard(self, imgs, preds, split):
-        img, pred = visualise.encoded_img_and_lbl_to_data(imgs, preds, self.means, self.sdevs, self.line_col)
-        predi = torch.Tensor(pred.permute(0,3,1,2))
+    def _imgs_to_tensorboard(self, imgs, split):
+        img = visualise.decode_image(imgs, self.means, self.sdevs)
         imag = torch.Tensor(img.permute(0,3,1,2))
-        row_views = torch.cat((imag[:,:3,:,:], predi)) # Grab only colour bands on image
+        row_views = imag[:,:3,:,:] # Grab only colour bands on image
 
         side_view = vutils.make_grid(row_views, nrow=len(img), normalize=True, scale_each=True)
         self.writer.add_image(f'{split}_Predicted-from-Image', side_view, self.epoch_now, dataformats='CHW')

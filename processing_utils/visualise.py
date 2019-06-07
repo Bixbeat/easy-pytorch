@@ -1,8 +1,10 @@
 # import visdom
+import random
+
 import torch
 from torchvision.transforms import Normalize, ToPILImage
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw
 import datetime as dt
 import time as t
 import matplotlib as mpl
@@ -21,6 +23,19 @@ def plot_pairs(image, label):
     lblplot.grid(color='r', linestyle='dashed', alpha=0.75)                
 
     plt.show(block=False)
+
+def draw_rectangles(image, bboxes, annotations, probabilities, gt=None):
+    out_img = ImageDraw.Draw(image)
+    for i,bbox in enumerate(bboxes):
+        random_color = "#"+''.join(random.choice('0123456789ABCDEF'))
+        out_img.Draw.rectangle(bbox, fill=None, outline=random_color)
+        
+        out_text = f"""{annotations[i]}\nP={probabilities[i]}:.1f"""
+        if gt:
+            out_text+=f"""\ntrue={gt}""" 
+        top_left = bbox[0]
+        out_img.Draw.multiline_text(top_left, out_text, fill=None, font='DejaVuSansMono.ttf')
+    return out_img
 
 def encoded_img_and_lbl_to_data(image, predictions, means, sdevs, label_colours):
     """For a given image and label pair, reconstruct both into
