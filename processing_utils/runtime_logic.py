@@ -50,7 +50,15 @@ class ImageAnalysis():
         self.loss_tracker = analysis_utils.LossRecorder(output_dir)
 
     def instantiate_visualiser(self, filepath=None):
-        from tensorboardX import SummaryWriter
+        try:
+            from torch.utils.tensorboard import SummaryWriter
+        except ImportError:
+            try:
+                from tensorboardX import SummaryWriter
+            except ImportError:
+                AssertionError("No support for Tensorboard found.")
+                return False
+
         self.visualiser = True
 
         if not filepath:
@@ -122,6 +130,8 @@ class AnnotatedImageAnalysis(ImageAnalysis):
         cam_imgs = torch.ones(target_imgs.shape)
         for i,_ in enumerate(target_imgs):
             img = target_imgs[i]
+            if torch.cuda.is_available():
+                img = img.cuda()
             if labels is not None:
                 label = labels[i].item()
     
@@ -129,11 +139,11 @@ class AnnotatedImageAnalysis(ImageAnalysis):
 
             cam_colored = np.uint8(cm.rainbow(cam)*255)
             out_cam = Image.fromarray(cam_colored[:,:,:3], 'RGB')
-            unnormed_tensor = visualise.decode_image(img, self.means, self.sdevs)
+            unnormed_tensor = visualise.decode_image(img, self.means, self.sdevs).cpu()
             in_array = np.uint8(unnormed_tensor*255)
             
             original_img = Image.fromarray(in_array, 'RGB')
-            overlaid_cam = Image.blend(original_img, out_cam, 0.3)
+            overlaid_cam = Image.blend(original_img, out_cam, 0.5)
 
             if label:
                 caption = f'pred: {self.classes[pred_class]} ({pred_class_probs*100:.2f}%), true: {self.classes[label]}'
@@ -163,11 +173,10 @@ class AnnotatedImageAnalysis(ImageAnalysis):
                                              verbose=True)
 
         for epoch in range(settings['n_epochs']):
+            print(f"\n======= Epoch {self.epoch_now} =======\n")
             self.model = self.model.train()
 
             epoch_train_loss, epoch_train_accuracy, train_conf_matrix = self.run_singletask_model(settings, 'train', self.train_loader, optimizer=settings['optimizer'])
-            
-            self.epoch_now = len(self.loss_tracker.all_loss['train'])+1
 
             epoch_now = len(self.loss_tracker.all_loss['val'])+1
             self.loss_tracker.store_epoch_loss('train', epoch_now, epoch_train_loss, epoch_train_accuracy)
@@ -190,6 +199,8 @@ class AnnotatedImageAnalysis(ImageAnalysis):
                     print(f"\nlr decayed by {settings['lr_decay']}\n")
             elif 'lr_decay_patience' in settings:
                 lr_scheduler.step(epoch_train_loss)
+
+            self.epoch_now = len(self.loss_tracker.all_loss['train'])+1
 
         if settings['shutdown'] is True:
             os.system("shutdown")        
@@ -218,6 +229,8 @@ class AnnotatedImageAnalysis(ImageAnalysis):
         
             if settings['cam_layer'] is not None and self.visualiser:
                 images, labels = next(iter(self.val_loader))
+                if torch.cuda.is_available():
+                    images = images.cuda()
                 cam_imgs = self.compute_cam_imgs(images, settings['cam_layer'], labels)
 
                 cam_grid = vutils.make_grid(cam_imgs, nrow=len(cam_imgs), normalize=True, scale_each=True)
@@ -343,13 +356,13 @@ class ObjectDetection(ImageAnalysis):
                                              verbose=True)
 
         for epoch in range(settings['n_epochs']):
+            print(f"\n======= Epoch {self.epoch_now} =======\n")
             self.model = self.model.train()
             epoch_train_loss = self.run_singletask_model(settings,
                                                         'train',
                                                         self.train_loader,
                                                         optimizer=settings['optimizer'])
 
-            self.epoch_now = len(self.loss_tracker.all_loss['train'])+1
             # self.loss_tracker.store_epoch_loss('train', self.epoch_now, epoch_train_loss, epoch_train_accuracy)
         
             if self.val_loader is not None:
@@ -367,7 +380,9 @@ class ObjectDetection(ImageAnalysis):
                     analysis_utils.decay_optimizer_lr(settings['optimizer'], settings['lr_decay'])
                     print(f"\nlr decayed by {settings['lr_decay']}\n")
             elif 'lr_decay_patience' in settings:
-                lr_scheduler.step(epoch_train_loss)            
+                lr_scheduler.step(epoch_train_loss)
+
+            self.epoch_now = len(self.loss_tracker.all_loss['train'])+1                 
                 
         if settings['shutdown'] is True:
             os.system("shutdown")
@@ -451,13 +466,13 @@ class SemSegAnalysis(ImageAnalysis):
                                              verbose=True)
 
         for epoch in range(settings['n_epochs']):
+            print(f"\n======= Epoch {self.epoch_now} =======\n")
             self.model = self.model.train()
             epoch_train_loss, epoch_train_accuracy = self.run_singletask_model(settings,
                                                                                'train',
                                                                                self.train_loader,
                                                                                optimizer=settings['optimizer'])
 
-            self.epoch_now = len(self.loss_tracker.all_loss['train'])+1
             self.loss_tracker.store_epoch_loss('train', self.epoch_now, epoch_train_loss, epoch_train_accuracy)
         
             if self.val_loader is not None:
@@ -475,7 +490,9 @@ class SemSegAnalysis(ImageAnalysis):
                     analysis_utils.decay_optimizer_lr(settings['optimizer'], settings['lr_decay'])
                     print(f"\nlr decayed by {settings['lr_decay']}\n")
             elif 'lr_decay_patience' in settings:
-                lr_scheduler.step(epoch_train_loss)            
+                lr_scheduler.step(epoch_train_loss)
+
+            self.epoch_now = len(self.loss_tracker.all_loss['train'])+1                         
                 
         if settings['shutdown'] is True:
             os.system("shutdown")

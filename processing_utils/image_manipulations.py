@@ -15,7 +15,7 @@ from PIL import Image
 def get_normalize_params(all_image_filepaths, num_bands):
     """For a set of image filepaths, returns the mean
     and stdev of all bands of all images in the set
-    TODO: Expand beyond 3 bands"""
+    """
     band_mean = [[] for i in range(num_bands)]
     band_stdev = [[] for i in range(num_bands)]
     for i, fname in enumerate(all_image_filepaths):

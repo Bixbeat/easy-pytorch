@@ -50,7 +50,7 @@ def encoded_img_and_lbl_to_data(image, predictions, means, sdevs, label_colours)
 def decode_image(in_img, mean, sdev):
     """For a given normalized image tensor, reconstructs
     the image by undoing the normalization"""
-    transposed_tensor = in_img.permute((1, 2, 0)).cpu()
+    transposed_tensor = in_img.permute((1, 2, 0))
     unnormed_img = torch.Tensor(sdev) * transposed_tensor + torch.Tensor(mean)
     out_img = torch.clamp(unnormed_img, 0, 1)
 
@@ -106,21 +106,19 @@ def get_cam_img(in_img_tensor, model, target_layer_name, out_size=(224,224), tar
     def hook_feature(module, image, output):
         out_cam.extend(output.data.cpu().numpy())
       
-    model._modules.get(target_layer_name).register_forward_hook(hook_feature)
+    handle = model._modules.get(target_layer_name).register_forward_hook(hook_feature)
 
     # get the softmax weight
     params = list(model.parameters())
     weight_softmax = np.squeeze(params[-2].data.cpu().numpy())
 
     img_variable = Variable(in_img_tensor.unsqueeze(0))
-    if torch.cuda.is_available():
-        img_variable.cuda()
         
     logit = model(img_variable)
 
     predictions = F.softmax(logit, dim=1).data.cpu().squeeze()
     _, idx = predictions.sort(0, True)
-    idx = idx.numpy()
+    idx = idx.numpy()   
 
     if target_class:
         pred_class = target_class
@@ -141,5 +139,8 @@ def get_cam_img(in_img_tensor, model, target_layer_name, out_size=(224,224), tar
         res_cam_img = cv2.resize(cam_img, out_size) 
     except ImportError: # Otherwise, resize to boring ol' squares
         res_cam_img = np.resize(cam_img, out_size)
+    
+    handle.remove()
+    logit = predictions = model = None
     
     return res_cam_img, pred_class, pred_class_probs
