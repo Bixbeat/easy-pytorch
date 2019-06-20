@@ -3,6 +3,7 @@
 ./tmp
 .ipynb_checkpoints
 .vscode
+__pycache__/
 
 outputs/
-dummy_data/hymenoptera_data/*
+dummy_data/
