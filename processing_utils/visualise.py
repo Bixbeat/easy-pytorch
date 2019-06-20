@@ -50,7 +50,7 @@ def encoded_img_and_lbl_to_data(image, predictions, means, sdevs, label_colours)
 def decode_image(in_img, mean, sdev):
     """For a given normalized image tensor, reconstructs
     the image by undoing the normalization"""
-    transposed_tensor = in_img.permute((1, 2, 0))
+    transposed_tensor = in_img.permute((1, 2, 0)).cpu()
     unnormed_img = torch.Tensor(sdev) * transposed_tensor + torch.Tensor(mean)
     out_img = torch.clamp(unnormed_img, 0, 1)
 
