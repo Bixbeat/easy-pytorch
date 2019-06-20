@@ -1,10 +1,10 @@
-import cv2
+from PIL import Image
 from os.path import basename
 
-def downsample_image(in_img_path, out_img_path, scale_factor=0.5):
-    img = cv2.imread(in_img_path)
-    out_img = cv2.resize(img,(38, 38), interpolation = cv2.INTER_AREA)
-    cv2.imwrite(out_img_path, out_img)
+def downsample_image(in_img_path, out_img_path, resolution):
+    img = Image.open(in_img_path)
+    out_img = img.resize(img,resolution, interpolation=Image.LANCZOS)
+    out_img.save(out_img_path)
 
 if __name__ == '__main__':
     import glob
