@@ -102,10 +102,6 @@ def get_cam_img(in_img_tensor, model, target_layer_name, out_size=(224,224), tar
         out_size {tuple} -- Output size after resizing (default: {(224,224)})
         target_class {int} -- Target class index (default: {None})
     """
-<<<<<<< HEAD
-=======
-    
->>>>>>> 0a23e16404f2ab798b8cb2150daaccd110e91f71
     out_cam = []
     def hook_feature(module, image, output):
         out_cam.extend(output.data.cpu().numpy())
@@ -116,7 +112,6 @@ def get_cam_img(in_img_tensor, model, target_layer_name, out_size=(224,224), tar
     params = list(model.parameters())
     weight_softmax = np.squeeze(params[-2].data.cpu().numpy())
 
-<<<<<<< HEAD
     img_variable = Variable(in_img_tensor.unsqueeze(0))
     if torch.cuda.is_available():
         img_variable.cuda()
@@ -125,14 +120,6 @@ def get_cam_img(in_img_tensor, model, target_layer_name, out_size=(224,224), tar
 
     predictions = F.softmax(logit, dim=1).data.cpu().squeeze()
     _, idx = predictions.sort(0, True)
-=======
-    img_variable = Variable(in_img_tensor.unsqueeze(0)).cuda()
-    logit = model(img_variable)
-
-    predictions = F.softmax(logit, dim=1).data.cpu().squeeze()
-    probs, idx = predictions.sort(0, True)
-    probs = probs.numpy()
->>>>>>> 0a23e16404f2ab798b8cb2150daaccd110e91f71
     idx = idx.numpy()
 
     if target_class:

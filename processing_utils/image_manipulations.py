@@ -15,27 +15,25 @@ from PIL import Image
 def get_normalize_params(all_image_filepaths, num_bands):
     """For a set of image filepaths, returns the mean
     and stdev of all bands of all images in the set
-    """
+    TODO: Expand beyond 3 bands"""
     band_mean = [[] for i in range(num_bands)]
     band_stdev = [[] for i in range(num_bands)]
-
-    for i, file in enumerate(all_image_filepaths):
-        current_img = Image.open(file)
-        if num_bands == 3 and current_img.mode in ['L', 'P']: #Stopgap for B&W images
-            bw_image = current_img
-            current_img = Image.new("RGB", current_img.size)
-            current_img.paste(bw_image)              
-        current_img = np.asarray(current_img)
-    
-        for band in range(num_bands):
-            band_mean[band].append(np.mean(current_img[:,:,band]))
-            band_stdev[band].append(np.std(current_img[:,:,band]))
+    for i, fname in enumerate(all_image_filepaths):
+        current_img = np.asarray(Image.open(fname))
+        
+        if not num_bands == 1:
+            for band in range(num_bands):
+                band_mean[band].append(np.mean(current_img[:,:,band]))
+                band_stdev[band].append(np.std(current_img[:,:,band]))
+        else:
+            band_mean[0].append(np.mean(current_img))
+            band_stdev[0].append(np.std(current_img))
                 
     for i,_ in enumerate(band_mean):
-        band_mean[i] = np.mean(band_mean[i])
-        band_stdev[i] = np.mean(band_stdev[i])
-
-    return {'means': band_mean, 'sdevs':band_stdev}
+        band_mean[i] = float(np.mean(band_mean[i]))
+        band_stdev[i] = float(np.mean(band_stdev[i]))
+        
+    return {"means": band_mean, "sdevs":band_stdev}
 
 def get_images(root_filepath, sort=True):
     """For a given path, returns a (sorted) list containing all
