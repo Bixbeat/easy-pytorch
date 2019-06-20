@@ -39,14 +39,13 @@ def get_images(root_filepath, sort=True):
     """For a given path, returns a (sorted) list containing all
     files."""
     image_paths = []
-    file_types = [ ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif"]
 
-    for ftype in file_types:
-        image_paths.extend(glob.iglob(root_filepath+'**/*'+ftype, recursive=True))
-    if sort:
+    for extension in ['jpg','tif','bmp','jpeg','png','tiff', 'JPG']:
+        image_paths.extend(glob.glob(root_filepath+f"/**/*.{extension}", recursive=True))
+    if sort is True:
         image_paths = sorted(image_paths)
-
     return image_paths
+
 
 def keep_mixed_class_labels(img_paths, lbl_paths):
     """For any combination of image and label paths with
