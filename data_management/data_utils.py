@@ -7,7 +7,7 @@ import csv
 
 import sqlite3
 
-from data_management.image_manipulations import is_image
+from processing_utils.image_manipulations import is_image
 
 class ImgDatabaseHandler():
     """IMPORTANT NOTE: Don't use this code in production without cleaning the input on the table name!

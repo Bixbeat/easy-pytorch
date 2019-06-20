@@ -78,3 +78,7 @@ def sync_img_and_lbls(root_dir, src_data_root, img_path, lbl_path):
         file = os.path.basename(file_path)
         missing_img = root_dir + src_data_root + "tiles/" + file
         copyfile(missing_img, root_dir + img_path + '/' + file)
+
+def is_image(file_path):
+    _, file_extension = os.path.splitext(file_path)
+    return (file_extension.lower() in ['.png','.jpg','.jpeg','.tif','.tiff','.gif'])
