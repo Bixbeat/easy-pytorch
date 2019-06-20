@@ -5,9 +5,10 @@ Sources:
     https://github.com/bfortuner/pytorch_tiramisu/blob/master/camvid_dataset.py    
 """
 import os, os.path
-import numpy as np
 import shutil
+import glob
 
+import numpy as np
 from PIL import Image, ImageOps
 
 def get_normalize_params(all_image_filepaths, num_bands):
@@ -39,9 +40,9 @@ def get_images(root_filepath, sort=True):
     """For a given path, returns a (sorted) list containing all
     files."""
     image_paths = []
-    for folder, _, imgs in os.walk(root_filepath):
-        for image_path in imgs:
-            image_paths.append(os.path.join(folder, image_path))
+
+    for extension in ['jpg','tif','bmp','jpeg','png','tiff', 'JPG   ']:
+        image_paths.extend(glob.glob(img_directory+"/*/*.JPG", recursive=True))
     if sort is True:
         image_paths = sorted(image_paths)
     return image_paths
@@ -152,7 +153,7 @@ def image_to_dataloader_folders(dataloader_root, img_class, img_split, img_path,
             # TODO: Make this function less convoluted
             if crop_bottom > 0:
                 img_to_resize = crop_bottom_and_sides(img_to_resize, crop_bottom)
-            img_to_equal_resize = ImageOps.fit(img_to_resize, (output_img_width, output_img_width))
+            img_to_equal_resize = ImageOps.fit(img_to_resize, (output_img_width, output_img_width), method=Image.LANCZOS)
             img_to_equal_resize.save(target_img_path)
         except FileNotFoundError as e:
             print(f'file not found: {e}\n')        

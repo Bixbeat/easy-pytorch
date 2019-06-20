@@ -1,2 +1,5 @@
+*.pyc
+
 ./tmp
-./outputs
+outputs/
+.ipynb_checkpoints

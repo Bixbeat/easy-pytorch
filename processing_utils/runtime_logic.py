@@ -117,13 +117,22 @@ class AnnotatedImageAnalysis(ImageAnalysis):
         return loss, accuracies, conf_matrix.matrix
  
     def compute_cam_imgs(self, target_imgs, cam_layer, labels=None, target_class=None):
+<<<<<<< HEAD
         img_size = (target_imgs.shape[2], target_imgs.shape[3])
+=======
+        img_size = (target_imgs.shape[0], target_imgs.shape[1])
+>>>>>>> 0a23e16404f2ab798b8cb2150daaccd110e91f71
         
         cam_imgs = torch.ones(target_imgs.shape)
         for i,_ in enumerate(target_imgs):
             img = target_imgs[i]
+<<<<<<< HEAD
             if labels is not None:
                 label = labels[i].item()
+=======
+            if labels:
+                label = labels[i] 
+>>>>>>> 0a23e16404f2ab798b8cb2150daaccd110e91f71
     
             cam, pred_class, pred_class_probs = visualise.get_cam_img(img, self.model, cam_layer, img_size)
 
@@ -136,9 +145,15 @@ class AnnotatedImageAnalysis(ImageAnalysis):
             overlaid_cam = Image.blend(original_img, out_cam, 0.3)
 
             if label:
+<<<<<<< HEAD
                 caption = f'pred: {self.classes[pred_class]} ({pred_class_probs*100:.2f}%), true: {self.classes[label]}'
             else:
                 caption = f'pred: {self.classes[pred_class]} ({pred_class_probs*100:.2f}%)'
+=======
+                caption = f'pred: {self.classes[pred_class]} ({float(pred_class_probs*100):.2f}%), true: {self.classes[label[0]]}'
+            else:
+                caption = f'pred: {self.classes[pred_class]} ({float(pred_class_probs*100):.2f}%)'
+>>>>>>> 0a23e16404f2ab798b8cb2150daaccd110e91f71
             
             draw = ImageDraw.Draw(overlaid_cam)
             font = ImageFont.load_default().font

@@ -194,6 +194,20 @@ class DataDistributor(object):
         self.previous_image_name = basename(self.previous_image)
         self.previous_label_name = basename(self.previous_label)      
 
+def determine_split(split_probs=[75,15]):
+    folder_id = np.random.randint(1,101)
+    
+    if folder_id in range(0, split_probs[0]):
+        split = 1
+        
+    elif folder_id in range(split_probs[0], split_probs[0] + split_probs[1]):
+        split = 2
+        
+    else:
+        split = 3
+
+    return split
+
 if __name__ == "__main__":
     root_path = "/home/anteagroup/Documents/deeplearning/code/bag_project_p2/data"
     img_path = os.path.join(root_path, "rasters/out/tiles/nir/")
