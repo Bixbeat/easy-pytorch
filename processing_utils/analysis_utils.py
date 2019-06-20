@@ -76,7 +76,6 @@ def set_dropout_probability(model, p=0):
 
 def var_to_cpu(var):
     if var.is_cuda:
-        import pdb;pdb.set_trace()
         var = var.cpu()
     return var
 
