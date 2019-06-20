@@ -1,9 +1,9 @@
 import os
-import numpy as np
 import datetime as dt
 
-from PIL import Image
-# from osgeo import gdal
+from PIL import Image, ImageDraw, ImageFont
+from matplotlib import cm
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -17,8 +17,8 @@ import torchvision.utils as vutils
 from processing_utils import image_manipulations as i_manips
 from processing_utils import visualise
 from processing_utils import analysis_utils
-from .data_funcs import create_dir_if_not_exist
-from .analysis_utils import var_to_cpu
+from processing_utils.data_funcs import create_dir_if_not_exist
+from processing_utils.analysis_utils import var_to_cpu
 
 from model.retinanet.model import nms
 from model.retinanet.losses import FocalLoss
@@ -54,7 +54,7 @@ class ImageAnalysis():
         self.visualiser = True
 
         if not filepath:
-            self.writer = SummaryWriter('tmp/log')
+            self.writer = SummaryWriter('/tmp/log')
         else:
             self.writer = SummaryWriter(filepath)
         # self.writer.add_graph(self.model, next(iter(self.train_loader))[0]
@@ -81,7 +81,7 @@ class ImageAnalysis():
         print(f"{split} {epoch} final loss: {loss:.4f}\n")
 
 class AnnotatedImageAnalysis(ImageAnalysis):
-    """Performs semantic segmentation
+    """Performs single-label scene annotation
     TODO: refactor repeated code (e.g. timekeeping)"""
     def __init__(self, model, classes, means, sdevs, train_loader=None, val_loader=None):    
         super().__init__(model, classes, train_loader, val_loader, means, sdevs)
@@ -108,20 +108,48 @@ class AnnotatedImageAnalysis(ImageAnalysis):
             
             accuracies.append(analysis_utils.get_mean_acc(preds, labels))
 
+            # Memory management - must be cleared else the output between train/val phase are both stored
+            # Which leads to 2x memory use
+            images = labels = batch_loss = None
+
         loss = loss/(i+1)
         accuracies = np.mean(accuracies)
         return loss, accuracies, conf_matrix.matrix
  
-    # def add_cam_img(self, target_img, cam_layer, input_size, target_class=None, epoch=0):
-    #     gradcam = visualise.GradCam(self.model, cam_layer)
-    #     cam_img = gradcam.create_gradcam_img(target_img, target_class, self.means, self.sdevs, input_size)
-    #     to_tensor = ToTensor()
-    #     cam_tensor = to_tensor(cam_img)
-    #     if target_class:
-    #         caption = f'pred_{gradcam.predicted_class}_true_{target_class}'
-    #     else:
-    #         caption = f'pred_{gradcam.predicted_class}'
-    #     self.writer.add_image(caption, cam_tensor, epoch)   
+    def compute_cam_imgs(self, target_imgs, cam_layer, labels=None, target_class=None):
+        img_size = (target_imgs.shape[2], target_imgs.shape[3])
+        
+        cam_imgs = torch.ones(target_imgs.shape)
+        for i,_ in enumerate(target_imgs):
+            img = target_imgs[i]
+            if labels is not None:
+                label = labels[i].item()
+    
+            cam, pred_class, pred_class_probs = visualise.get_cam_img(img, self.model, cam_layer, img_size)
+
+            cam_colored = np.uint8(cm.rainbow(cam)*255)
+            out_cam = Image.fromarray(cam_colored[:,:,:3], 'RGB')
+            unnormed_tensor = visualise.decode_image(img, self.means, self.sdevs)
+            in_array = np.uint8(unnormed_tensor*255)
+            
+            original_img = Image.fromarray(in_array, 'RGB')
+            overlaid_cam = Image.blend(original_img, out_cam, 0.3)
+
+            if label:
+                caption = f'pred: {self.classes[pred_class]} ({pred_class_probs*100:.2f}%), true: {self.classes[label]}'
+            else:
+                caption = f'pred: {self.classes[pred_class]} ({pred_class_probs*100:.2f}%)'
+            
+            draw = ImageDraw.Draw(overlaid_cam)
+            font = ImageFont.load_default().font
+            draw.text((10, 10), caption, fill=(255,0,125), font=font)
+
+            to_tensor = ToTensor()
+            cam_tensor = to_tensor(overlaid_cam)            
+
+            cam_imgs[i:,:,:] = cam_tensor
+
+        return cam_imgs
 
     def train(self, settings):
         """Performs model training"""
@@ -156,7 +184,7 @@ class AnnotatedImageAnalysis(ImageAnalysis):
             self._print_results(epoch_now, epoch_train_loss, epoch_train_accuracy, 'train')
             print('Training confusion matrix:\n', train_conf_matrix)
 
-            if 'lr_decay_patience' in settings:
+            if 'lr_decay_epoch' in settings:
                 if epoch in settings['lr_decay_epoch']:
                     analysis_utils.decay_optimizer_lr(settings['optimizer'], settings['lr_decay'])
                     print(f"\nlr decayed by {settings['lr_decay']}\n")
@@ -188,17 +216,17 @@ class AnnotatedImageAnalysis(ImageAnalysis):
             self._save_if_best(epoch_val_loss, self.model, settings['run_name']+'_best')
             self._print_results(self.epoch_now, epoch_val_loss, epoch_val_accuracy, 'val')
         
-        # if settings['cam_layer'] is not None and self.visualiser:
-        #     images, labels = next(iter(self.train_loader))
-        #     target_class = labels[0]
-        #     target_img = Variable(images[0].unsqueeze(0))
-        #     out_size = target_img.shape[-1]
-        #     self.add_cam_img(target_img, settings['cam_layer'], out_size, target_class, epoch_now)
+            if settings['cam_layer'] is not None and self.visualiser:
+                images, labels = next(iter(self.val_loader))
+                cam_imgs = self.compute_cam_imgs(images, settings['cam_layer'], labels)
+
+                cam_grid = vutils.make_grid(cam_imgs, nrow=len(cam_imgs), normalize=True, scale_each=True)
+                self.writer.add_image("Validation batch CAMs", cam_grid, self.epoch_now, dataformats='CHW')                
         
         self._print_results(self.epoch_now, epoch_val_loss, epoch_val_accuracy, 'val')
         print('Validation confusion matrix:\n', val_conf_matrix)
 
-    def infer(self, image, transforms, cam_layer=None, target_class=None, colorramp='inferno', verbose=False):
+    def infer(self, image, transforms, cam_layer=None, target_class=None):
         """Takes a single image and computes the most likely class
         """
         self.model = self.model.eval()
@@ -212,15 +240,11 @@ class AnnotatedImageAnalysis(ImageAnalysis):
         _, predicted_class_index = torch.max(output, 1)
         predicted_class = self.classes[int(predicted_class_index)]
         
-        # cam_img = None
-        # if cam_layer is not None:
-        #     target_img = image.cpu()
-        #     gradcam = visualise.GradCam(self.model, cam_layer, colorramp)
-        #     cam_img = gradcam.create_gradcam_img(target_img, target_class, self.means, self.sdevs, 224)
-        # if verbose:
-        #     print(f"Predicted class: {predicted_class}")
-        #     print(f"Prediction confidence: {confidence}")
-        # return [predicted_class, confidence, cam_img]
+        if cam_layer:
+            cam_imgs = self.compute_cam_imgs(self, image, cam_layer)
+            return cam_imgs
+        else:
+            return output, confidence
 
 class ObjectDetection(ImageAnalysis):
     def __init__(self, model, classes, means, sdevs, train_loader=None, val_loader=None, line_colors=None):
@@ -236,9 +260,10 @@ class ObjectDetection(ImageAnalysis):
             if optimizer:
                 optimizer.zero_grad()
             images = Variable(batch[0])
+            labels = Variable(batch[1])
             if torch.cuda.is_available:
-                images = images.cuda()            
-            labels = batch[1]
+                images = images.cuda()
+                labels = labels.cuda()       
 
             losses, preds = self._get_batch_loss_and_preds(images, labels, settings['criterion'])
             batch_loss = losses[0] + losses[1]

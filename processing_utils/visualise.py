@@ -1,7 +1,8 @@
-# import visdom
 import random
 
 import torch
+from torch.nn import functional as F
+from torch.autograd import Variable
 from torchvision.transforms import Normalize, ToPILImage
 import numpy as np
 from PIL import Image, ImageOps, ImageDraw
@@ -46,21 +47,14 @@ def encoded_img_and_lbl_to_data(image, predictions, means, sdevs, label_colours)
     restored_img = decode_image(image, means, sdevs)
     return restored_img, coloured_label
 
-
-def decode_image(tensor, mean, sdev):
+def decode_image(in_img, mean, sdev):
     """For a given normalized image tensor, reconstructs
-    the image by undoing the normalization and transforming
-    the tensor to an image"""
-    out_imgs = torch.FloatTensor()
-    for i, img in enumerate(tensor):    
-        transposed_tensor = img.permute((1, 2, 0)).cpu()
-        unnormed_img = torch.Tensor(sdev) * transposed_tensor + torch.Tensor(mean)
-        image = torch.clamp(unnormed_img, 0, 1)
-        image = image.unsqueeze(0) # Add dim to cat along
-        
-        out_imgs = torch.cat((out_imgs, image))
+    the image by undoing the normalization"""
+    transposed_tensor = in_img.permute((1, 2, 0)).cpu()
+    unnormed_img = torch.Tensor(sdev) * transposed_tensor + torch.Tensor(mean)
+    out_img = torch.clamp(unnormed_img, 0, 1)
 
-    return out_imgs   
+    return out_img
     
 def colour_lbl(tensor, colours):
     """For a given RGB image, constructs a RGB image map
@@ -93,131 +87,59 @@ def colour_lbl(tensor, colours):
 def _remove_microseconds(time_delta):
     return time_delta - dt.timedelta(microseconds=time_delta.microseconds)
 
-class CamExtractor():
+def get_cam_img(in_img_tensor, model, target_layer_name, out_size=(224,224), target_class=None):
+    """For a given (unbatched) image,
+    generates a class attention map image from the target layer
+    
+    Adapted from https://github.com/metalbubble/CAM
+    
+    Arguments:
+        in_img_tensor {Tensor} -- Unnormalized input image
+        model {PyTorch model} -- Model which to get the CAM for
+        target_layer_name {str} -- Name of the target convolutional layer
+    
+    Keyword Arguments:
+        out_size {tuple} -- Output size after resizing (default: {(224,224)})
+        target_class {int} -- Target class index (default: {None})
     """
-        Extracts cam features from the model
-    """
-    def __init__(self, model, target_layer):
-        self.model = model
-        self.target_layer = target_layer
-        self.gradients = None
+    out_cam = []
+    def hook_feature(module, image, output):
+        out_cam.extend(output.data.cpu().numpy())
+      
+    model._modules.get(target_layer_name).register_forward_hook(hook_feature)
 
-    def save_gradient(self, grad):
-        self.gradients = grad
+    # get the softmax weight
+    params = list(model.parameters())
+    weight_softmax = np.squeeze(params[-2].data.cpu().numpy())
 
-    def forward_pass_on_convolutions(self, input_img):
-        """
-            Does a forward pass on convolutions, hooks the function at given layer
-        """
-        conv_output = None
-        features = input_img
-
-        for module_pos, module in self.model._modules.items():
-            if module_pos == 'fc':
-                features = features.view(features.size(0), -1)            
-            features = module(features)  # Forward
-            if module_pos == self.target_layer:
-                features.register_hook(self.save_gradient)
-                conv_output = features  # Save the output on target layer
-
-        model_output = features
-        return conv_output, model_output
-
-    def forward_pass(self, input_img):
-        conv_output, model_output = self.forward_pass_on_convolutions(input_img)
-        return conv_output, model_output
-
-class GradCam():
-    """
-        Produces class activation map
-    """
-    def __init__(self, model, target_layer, colorramp='inferno'):
-        self.colorramp = colorramp
-        self.model = model.eval()
-        self.target_layer = target_layer
-        self.extractor = CamExtractor(self.model, target_layer)       
-
-        self.predicted_class = None
-        self.layer_required_grad = None
-
-    def generate_cam(self, input_image, means, sdevs, out_img_size=224, unnormalize=True, cam_transparency=0.5, target_class=None):
-        self._enable_gradient()
-        conv_output, model_output = self.extractor.forward_pass(input_image)
-        self.predicted_class = np.argmax(model_output.data.numpy())
-        if target_class is None:
-            target_class = self.predicted_class
-        self.model.zero_grad()
-
-        original_img = var_to_cpu(input_image).data[0]
-        if unnormalize:
-            original_img = normalized_img_tensor_to_pil(original_img, means, sdevs)
-
-        cam = self.results_to_cam(conv_output, model_output, target_class)
-        cam_heatmap = self.cam_array_to_heatmap(cam, out_img_size)
-        cam_overlaid = Image.blend(cam_heatmap, original_img, cam_transparency)
-
-        self._disable_grad_if_required()
-        return cam_overlaid
-
-    def results_to_cam(self, conv_output, model_output, target_class):
-        one_hot_output = torch.FloatTensor(1, model_output.size()[-1]).zero_()
-        one_hot_output[0][target_class] = 1 # Backprop target
-
-        model_output.backward(gradient=one_hot_output, retain_graph=True)
-        guided_gradients = self.extractor.gradients.data.numpy()[0]
-        target_conv = conv_output.data.numpy()[0]
-        weights = np.mean(guided_gradients, axis=(1, 2))  # Take averages for each gradient
+    img_variable = Variable(in_img_tensor.unsqueeze(0))
+    if torch.cuda.is_available():
+        img_variable.cuda()
         
-        cam = np.ones(target_conv.shape[1:], dtype=np.float32)
-        for i, w in enumerate(weights):
-            cam += w * target_conv[i, :, :] # Multiply weights with conv output and sum
-        return cam
+    logit = model(img_variable)
 
-    def cam_array_to_heatmap(self, cam_array, out_img_size):
-        cam_normalized = (cam_array - np.min(cam_array)) / (np.max(cam_array) - np.min(cam_array))
-        cam_coloured = self.colourize_gradient(cam_normalized)[:, :, :3]
-        cam_img = Image.fromarray(np.uint8(cam_coloured*255))
-        cam_resized = ImageOps.fit(cam_img, (out_img_size, out_img_size))
-        return cam_resized
+    predictions = F.softmax(logit, dim=1).data.cpu().squeeze()
+    _, idx = predictions.sort(0, True)
+    idx = idx.numpy()
 
-    def create_gradcam_img(self, target_img, img_class, means, sdevs, input_size):
-        cam_input_img = var_to_cpu(target_img)
-        used_cuda = None
-        if next(self.model.parameters()).is_cuda: #Most compact way to check if model is in cuda
-            self.model = self.model.cpu()
-            used_cuda = True
+    if target_class:
+        pred_class = target_class
+        pred_class_probs = predictions[pred_class]
+    else: # Use highest probability class
+        pred_class = idx[0]
+        pred_class_probs = predictions[pred_class]
 
-        cam_img = self.generate_cam(cam_input_img, means, sdevs, input_size, target_class=img_class)
+    nc, h, w = out_cam[0].shape
+    cam = weight_softmax[pred_class].dot(out_cam[0].reshape((nc, h*w)))
 
-        if used_cuda:
-            self.model = self.model.cuda()
-        return cam_img      
-
-    def _enable_gradient(self):
-        # Enable gradient to layers so that it can be hooked
-        # method does NOT perform optimization
-        layer = self.model._modules.get(self.target_layer)
-        for param in layer.parameters():
-            self.layer_required_grad = param.requires_grad
-            param.requires_grad = True
-
-    def _disable_grad_if_required(self):
-        layer = self.model._modules.get(self.target_layer)
-        if self.layer_required_grad is False:
-            for param in layer.parameters():
-                param.requires_grad = False   
-
-    def colourize_gradient(self, img_array):
-        colour = mpl.cm.get_cmap(self.colorramp)
-        coloured_img = colour(img_array)
-        return coloured_img
-
-def normalized_img_tensor_to_pil(img_tensor, means, sdevs):
-    bands = len(means)
-    to_pil = ToPILImage()
-    inverse_normalize = Normalize(
-        mean =[-means[band]/sdevs[band] for band in range(bands)],
-        std=[1/sdevs[band] for band in range(bands)]
-    )
-    inverse_tensor = inverse_normalize(img_tensor)      
-    return to_pil(inverse_tensor)
+    cam = cam.reshape(h, w)
+    cam = cam - np.min(cam)
+    cam_img = cam / np.max(cam)
+    cam_img = np.uint8(255 * cam_img)
+    try: # As per the source CV2 used because of its smooth interpolation resizing
+        import cv2
+        res_cam_img = cv2.resize(cam_img, out_size) 
+    except ImportError: # Otherwise, resize to boring ol' squares
+        res_cam_img = np.resize(cam_img, out_size)
+    
+    return res_cam_img, pred_class, pred_class_probs
