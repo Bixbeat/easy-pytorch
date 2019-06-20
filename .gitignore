@@ -1,5 +1,8 @@
 *.pyc
 
 ./tmp
-outputs/
 .ipynb_checkpoints
+.vscode
+
+outputs/
+dummy_data/hymenoptera_data/*
